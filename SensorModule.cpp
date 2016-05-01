@@ -1,14 +1,13 @@
 #include "SensorModules.h"
 
-SensorModule::SensorModule(String name, uint8_t canID, uint8_t height) {
+SensorModule::SensorModule(String name, uint8_t address, uint8_t height) {
     this->name = name;
-    this->address = canID;
+    this->address = address;
     this->height = height;
     this->temperature = 0;
     this->humidity = 0;
     this->pressure = 0;
     this->carbonDioxide = 0;
-    this->next = NULL;
 }
 
 void SensorModule::UpdateReadings(double temp, uint8_t hum, double press, double co2) {
