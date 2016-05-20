@@ -49,7 +49,7 @@ struct Point {
 };
 
 /************************* All configurable settings here ********************************/
-unsigned long samplingRate = 2000; // Change to configure sampling rate of sensor modules
+unsigned long samplingRate = 10000; // Change to configure sampling rate of sensor modules
 const String nodeName = "Team 6 Sensor Node";
 const Point nodePosition = {.x = 2, .y = 5};
 
@@ -76,6 +76,7 @@ uint8_t getAvailableAddress() {
 XBee xbee = XBee();
 SensorModule *xbeeQueue[XBEE_QUEUE_SIZE] = { NULL }; // Sensor modules queue for sending over xbee
 uint8_t xbeeQueueHead = 0, xbeeQueueTail = 0, xbeeQueueCount = 0;
+uint8_t sampleId;
 
 // OPT3001 Light Sensor Data
 Opt3001 opt3001;
@@ -206,7 +207,8 @@ void loop() {
 #endif
 
         // Check if sensor module already exists in the array
-        uint8_t canAddress = 0, indexInArray = 0;
+        uint8_t canAddress = 0; 
+        int16_t indexInArray = -1;
         for(int i = 0; i < sensorModulesCount; i++) {
           if(SensorModules[i]->EqualMacAddresses(&RecieveFrame.data.bytes[2])) {
             canAddress = SensorModules[i]->canAddress;
@@ -229,12 +231,18 @@ void loop() {
         // Place new sensor module in array, at its specified height (DIP Switch setting)
         SensorModule *module = new SensorModule("Module " + String(RecieveFrame.data.bytes[0]), &RecieveFrame.data.bytes[2], 
                                       canAddress, RecieveFrame.data.bytes[0], RecieveFrame.data.bytes[1]);
-        if(indexInArray != 0) { // Add at same spot in array is it was already there
+        if(indexInArray >= 0) { // Add at same spot in array is it was already there
           SensorModules[indexInArray] = module;
+#if DEBUG
+          Serial.println("Sensor Module re-added");
+#endif
         } 
         else { // Add at a new spot if this is a new sensor module
           SensorModules[sensorModulesCount] = module;
           sensorModulesCount++;
+#if DEBUG
+          Serial.println("Sensor module added");
+#endif
         }
         break;
       }
@@ -306,6 +314,10 @@ void updateSensorModule(CAN_FRAME &frame) {
  * Description: Timer thread
  */
 void loop2() {
+  // Increment sample id with each sample interval
+  // TODO: this should be sample time with RTC
+  sampleId++;
+  
   // Read light sensor
   lightIntensity = opt3001.readResult();
   lightHasNewReading = true;
@@ -331,6 +343,7 @@ void loop2() {
  * TODO: Create a better display loop that appears to update more quickly
  */
 const unsigned long displayTime = 10000; // 10 second diplay time = 10000 milliseconds
+const uint8_t lcdRefreshRate = 250; // Refresh rate in milliseconds
 void loop3() {
   static unsigned long startTime;
   
@@ -341,7 +354,7 @@ void loop3() {
     lcd.print("Host Controller");
     lcd.setCursor(0, 1);
     lcd.print("Light: "); lcd.print(lightIntensity); lcd.print(" lux");
-    delay(50);
+    delay(lcdRefreshRate);
   }
 
   // Display sensor readings from sensor modules (Temp, Hum, Press, Co2)
@@ -353,7 +366,7 @@ void loop3() {
       lcd.print(SensorModules[i]->name);
       lcd.setCursor(0, 1);
       lcd.print("Temp: "); lcd.print(SensorModules[i]->temperature); lcd.print(" F"); // Degrees F
-      delay(50);
+      delay(lcdRefreshRate);
     }
     
     startTime = millis();
@@ -362,7 +375,7 @@ void loop3() {
       lcd.print(SensorModules[i]->name);
       lcd.setCursor(0, 1);
       lcd.print("Humi: "); lcd.print(SensorModules[i]->humidity); lcd.print(" %RH"); // Relative humidity
-      delay(50);
+      delay(lcdRefreshRate);
     }
     
     startTime = millis();
@@ -371,7 +384,7 @@ void loop3() {
       lcd.print(SensorModules[i]->name);
       lcd.setCursor(0, 1);
       lcd.print("Pres: "); lcd.print(SensorModules[i]->pressure); lcd.setCursor(12, 1); lcd.print(" hPa"); // Hectopascalls
-      delay(50);
+      delay(lcdRefreshRate);
     }
     
     startTime = millis();
@@ -380,7 +393,7 @@ void loop3() {
       lcd.print(SensorModules[i]->name);
       lcd.setCursor(0, 1);
       lcd.print("Co2: "); lcd.print(SensorModules[i]->carbonDioxide); lcd.print(" ppm"); // Parts-per-million
-      delay(50);
+      delay(lcdRefreshRate);
     }
   }
   
@@ -392,7 +405,7 @@ void loop3() {
  * Description: XBee Thread
  */
 uint8_t payload[XBEE_MAX_PAYLOAD_SIZE];
-XBeeAddress64 addr64 = XBeeAddress64(0x0013a200, 0x40eb3589); // TODO: Should be able to use broadcast address instead, 0x0000
+XBeeAddress64 addr64 = XBeeAddress64(0x0013a200, 0x40fb6a8d); // TODO: Should be able to use broadcast address instead, 0x0000
 
 void loop4() {
   uint16_t util, index;
@@ -401,9 +414,11 @@ void loop4() {
   if(xbeeQueueCount > 0) {
     // Get a pointer to the next sensor module in the queue
     SensorModule *sm = xbeeQueue[xbeeQueueHead];
-    
-    for(index = 0; index < nodeName.length(); index++) {
-      payload[index] = nodeName[index]; // Load node name
+
+    index = 0;
+    payload[index++] = sampleId;
+    for(index = 1; index < nodeName.length() + 1; index++) {
+      payload[index] = nodeName[index - 1]; // Load node name
     }
     payload[index++] = '\0'; // end of node name
     payload[index++] = nodePosition.x; // x-position
@@ -454,10 +469,12 @@ void loop4() {
   if(lightHasNewReading) {
     // Create data packet for light intensity reading
     // Format: See Doc.
-    for(index = 0; index < nodeName.length(); index++) {
-      payload[index] = nodeName[index]; // Load node name
+    index = 0;
+    payload[index++] = sampleId;
+    for(index = 1; index < nodeName.length() + 1; index++) {
+      payload[index] = nodeName[index - 1]; // Load node name
     }
-    payload[index++] = index - 1; // Node name length
+    payload[index++] = '\0'; // end of node name
     payload[index++] = nodePosition.x; // x-position
     payload[index++] = nodePosition.y; // y-position
     payload[index++] = 'U'; // Update command

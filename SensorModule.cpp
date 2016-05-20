@@ -2,10 +2,13 @@
 
 SensorModule::SensorModule(String name, uint8_t *pMacAddress, uint8_t canAddress, uint8_t height, bool hasCo2) {
     this->name = name;
-    for(int i = 0; i < 6; i++) {
+
+    Serial.print("MAC Address: 0x");
+    for(int i = 0; i < 6; i++, pMacAddress++) {
       this->macAddress[i] = *pMacAddress;
-      pMacAddress++;
+      Serial.print(*pMacAddress, HEX);
     }
+    Serial.println();
     this->canAddress = canAddress;
     this->height = height;
     this->hasCo2 = hasCo2;
@@ -27,9 +30,10 @@ void SensorModule::UpdateReadings(double temp, uint8_t hum, double press, double
 bool SensorModule::EqualMacAddresses(uint8_t *otherMac) {
   uint8_t index;
   for(index = 0; index < 6; index++, otherMac++) {
-    this->macAddress[index] == *otherMac;
+    if(this->macAddress[index] != *otherMac) {
+      return false;
+    }
   }
-
-  return (index == 6);
+  return true;
 }
 
